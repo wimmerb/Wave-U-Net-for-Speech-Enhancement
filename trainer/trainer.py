@@ -8,6 +8,10 @@ from trainer.base_trainer import BaseTrainer
 from util.utils import compute_STOI, compute_PESQ
 plt.switch_backend('agg')
 
+import tqdm
+
+import pdb, gc
+
 
 class Trainer(BaseTrainer):
     def __init__(
@@ -27,7 +31,10 @@ class Trainer(BaseTrainer):
     def _train_epoch(self, epoch):
         loss_total = 0.0
 
-        for i, (mixture, clean, name) in enumerate(self.train_data_loader):
+        for i, (mixture, clean) in enumerate(tqdm.tqdm(self.train_data_loader)):
+            # print (i)
+            # print (mixture.shape)
+            # print (mixture.shape)
             mixture = mixture.to(self.device)
             clean = clean.to(self.device)
 
@@ -44,21 +51,33 @@ class Trainer(BaseTrainer):
 
     @torch.no_grad()
     def _validation_epoch(self, epoch):
+        
+
+
         visualize_audio_limit = self.validation_custom_config["visualize_audio_limit"]
         visualize_waveform_limit = self.validation_custom_config["visualize_waveform_limit"]
         visualize_spectrogram_limit = self.validation_custom_config["visualize_spectrogram_limit"]
 
         sample_length = self.validation_custom_config["sample_length"]
 
+        l1_losses = np.array([])
+        l2_losses = np.array([])
+
+        custom_loss = self.validation_custom_config.get("loss", None)
+
         stoi_c_n = []  # clean and noisy
         stoi_c_e = []  # clean and enhanced
         pesq_c_n = []
         pesq_c_e = []
 
-        for i, (mixture, clean, name) in enumerate(self.validation_data_loader):
+        
+
+        for i, (mixture, clean, name, _) in enumerate(tqdm.tqdm(self.validation_data_loader)):
             assert len(name) == 1, "Only support batch size is 1 in enhancement stage."
+            
             name = name[0]
             padded_length = 0
+            
 
             mixture = mixture.to(self.device)  # [1, 1, T]
 
@@ -66,6 +85,8 @@ class Trainer(BaseTrainer):
             if mixture.size(-1) % sample_length != 0:
                 padded_length = sample_length - (mixture.size(-1) % sample_length)
                 mixture = torch.cat([mixture, torch.zeros(1, 1, padded_length, device=self.device)], dim=-1)
+                
+
 
             assert mixture.size(-1) % sample_length == 0 and mixture.dim() == 3
             mixture_chunks = list(torch.split(mixture, sample_length, dim=-1))
@@ -74,12 +95,26 @@ class Trainer(BaseTrainer):
             for chunk in mixture_chunks:
                 enhanced_chunks.append(self.model(chunk).detach().cpu())
 
+            
+
             enhanced = torch.cat(enhanced_chunks, dim=-1)  # [1, 1, T]
+            # print ("enhanced shape", enhanced.shape)
             enhanced = enhanced if padded_length == 0 else enhanced[:, :, :-padded_length]
+            mixture = mixture if padded_length == 0 else mixture[:, :, :-padded_length]
+
+            
+            
+            # print ("mixture shape", mixture.shape)
 
             enhanced = enhanced.reshape(-1).numpy()
             clean = clean.numpy().reshape(-1)
             mixture = mixture.cpu().numpy().reshape(-1)
+
+            
+
+            # print (mixture.shape)
+            # print (clean.shape)
+            # print (enhanced.shape)
 
             assert len(mixture) == len(enhanced) == len(clean)
 
@@ -103,31 +138,57 @@ class Trainer(BaseTrainer):
                 plt.tight_layout()
                 self.writer.add_figure(f"Waveform/{name}", fig, epoch)
 
-            # Visualize spectrogram
-            noisy_mag, _ = librosa.magphase(librosa.stft(mixture, n_fft=320, hop_length=160, win_length=320))
-            enhanced_mag, _ = librosa.magphase(librosa.stft(enhanced, n_fft=320, hop_length=160, win_length=320))
-            clean_mag, _ = librosa.magphase(librosa.stft(clean, n_fft=320, hop_length=160, win_length=320))
+            # # Visualize spectrogram
+            # noisy_mag, _ = librosa.magphase(librosa.stft(mixture, n_fft=320, hop_length=160, win_length=320))
+            # enhanced_mag, _ = librosa.magphase(librosa.stft(enhanced, n_fft=320, hop_length=160, win_length=320))
+            # clean_mag, _ = librosa.magphase(librosa.stft(clean, n_fft=320, hop_length=160, win_length=320))
 
-            if i <= visualize_spectrogram_limit:
-                fig, axes = plt.subplots(3, 1, figsize=(6, 6))
-                for k, mag in enumerate([
-                    noisy_mag,
-                    enhanced_mag,
-                    clean_mag,
-                ]):
-                    axes[k].set_title(f"mean: {np.mean(mag):.3f}, "
-                                      f"std: {np.std(mag):.3f}, "
-                                      f"max: {np.max(mag):.3f}, "
-                                      f"min: {np.min(mag):.3f}")
-                    librosa.display.specshow(librosa.amplitude_to_db(mag), cmap="magma", y_axis="linear", ax=axes[k], sr=16000)
-                plt.tight_layout()
-                self.writer.add_figure(f"Spectrogram/{name}", fig, epoch)
-
+            # if i <= visualize_spectrogram_limit:
+            #     fig, axes = plt.subplots(3, 1, figsize=(6, 6))
+            #     for k, mag in enumerate([
+            #         noisy_mag,
+            #         enhanced_mag,
+            #         clean_mag,
+            #     ]):
+            #         axes[k].set_title(f"mean: {np.mean(mag):.3f}, "
+            #                           f"std: {np.std(mag):.3f}, "
+            #                           f"max: {np.max(mag):.3f}, "
+            #                           f"min: {np.min(mag):.3f}")
+            #         librosa.display.specshow(librosa.amplitude_to_db(mag), cmap="magma", y_axis="linear", ax=axes[k], sr=16000)
+            #     plt.tight_layout()
+            #     self.writer.add_figure(f"Spectrogram/{name}", fig, epoch)
+            # #print (mixture.device(), clean.device(), enhanced.device())
             # Metric
-            stoi_c_n.append(compute_STOI(clean, mixture, sr=16000))
-            stoi_c_e.append(compute_STOI(clean, enhanced, sr=16000))
-            pesq_c_n.append(compute_PESQ(clean, mixture, sr=16000))
-            pesq_c_e.append(compute_PESQ(clean, enhanced, sr=16000))
+            if custom_loss == None:
+                stoi_c_n.append(compute_STOI(clean, mixture, sr=16000))
+                stoi_c_e.append(compute_STOI(clean, enhanced, sr=16000))
+
+                try:
+                    pesq_c_n.append(compute_PESQ(clean, mixture, sr=16000))
+                    pesq_c_e.append(compute_PESQ(clean, enhanced, sr=16000))
+                except:
+                    print ("pesq error", len (pesq_c_e))
+            # print(len (pesq_c_e))
+            # print (pesq_c_e[-1])
+
+            # i = 0
+            # for obj in gc.get_objects():
+            #     try:
+            #         if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+            #             i += 1
+            #             #print(type(obj), obj.size())
+            #     except:
+            #         pass
+            # print ("NR_OBJECTS", i)
+            #pdb.set_trace()
+            # print (type (clean))
+            # print (type (mixture))
+            l1_losses = np.append(l1_losses, np.mean(np.abs(clean-enhanced)))
+            l2_losses = np.append(l2_losses, np.mean((clean-enhanced)**2))
+            # print(l1_losses[-1])
+            # if (l1_losses[-1] == 0.0):
+            #     print (clean[:100])
+            #     print (mixture[:100])
 
         get_metrics_ave = lambda metrics: np.sum(metrics) / len(metrics)
         self.writer.add_scalars(f"Metric/STOI", {
@@ -139,5 +200,22 @@ class Trainer(BaseTrainer):
             "Clean and enhanced": get_metrics_ave(pesq_c_e)
         }, epoch)
 
+        
+
         score = (get_metrics_ave(stoi_c_e) + self._transform_pesq_range(get_metrics_ave(pesq_c_e))) / 2
+
+        
+
+        if custom_loss != None:
+            print (custom_loss, "loss used")
+            if custom_loss == "l1":
+                score = np.mean(l1_losses)
+            elif custom_loss == "l2":
+                score = np.mean(l2_losses)
+            else:
+                assert False
+        else:
+            print ("no custom loss used")
+        print ("l1 loss is: ", np.mean(l1_losses))
+        print ("l2 loss is: ", np.mean(l2_losses))
         return score

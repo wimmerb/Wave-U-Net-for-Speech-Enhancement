@@ -1,20 +1,21 @@
 {
     "model": {
         "module": "model.unet_basic",
-        "main": "UNet",
+        "main": "Model",
         "args": {}
     },
     "dataset": {
         "module": "dataset.waveform_dataset_enhancement",
         "main": "WaveformDataset",
         "args": {
-            "dataset": "/home/imucs/tmp/UNet_and_Inpainting/data.txt",
-            "limit": 400,
-            "offset": 0,
-            "sample_length": 16384
+            "dataset": "/home/benedikt/thesis/TRAIN_EVALUATION_DATA/TROMPA_REHEARSALS/all_recordings.txt",
+            "limit": 40,
+            "offset": 20,
+            "sr": 16000
         }
     },
     "custom": {
         "sample_length": 16384
-    }
+    },
+    "comment": "python enhancement.py -C config/enhancement/unet_basic.json -D 0 -O /home/benedikt/Experiments/Wave-U-Net/Dereverb_21_06_26/inference -M /home/benedikt/Experiments/Wave-U-Net/Dereverb_21_06_26/train_dereverb/checkpoints/best_model.tar"
 }

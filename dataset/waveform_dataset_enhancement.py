@@ -4,7 +4,7 @@ import librosa
 
 
 class WaveformDataset(Dataset):
-    def __init__(self, dataset, limit=None, offset=0, sample_length=16384):
+    def __init__(self, dataset, limit=None, offset=0, sample_length=16384, sr = 16000):
         """Construct dataset for enhancement.
         Args:
             dataset (str): *.txt. The path of the dataset list file. See "Notes."
@@ -36,6 +36,7 @@ class WaveformDataset(Dataset):
         self.length = len(dataset_list)
         self.dataset_list = dataset_list
         self.sample_length = sample_length
+        self.sr = sr
 
     def __len__(self):
         return self.length
@@ -44,6 +45,6 @@ class WaveformDataset(Dataset):
         mixture_path = self.dataset_list[item]
         name = os.path.splitext(os.path.basename(mixture_path))[0]
 
-        mixture, _ = librosa.load(os.path.abspath(os.path.expanduser(mixture_path)), sr=None)
+        mixture, _ = librosa.load(os.path.abspath(os.path.expanduser(mixture_path)), sr=self.sr)
 
         return mixture.reshape(1, -1), name

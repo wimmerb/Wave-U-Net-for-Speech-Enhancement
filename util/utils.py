@@ -3,6 +3,7 @@ import time
 import os
 
 import torch
+#from pypesq import pesq
 from pesq import pesq
 import numpy as np
 from pystoi.stoi import stoi
@@ -74,6 +75,7 @@ def initialize_config(module_cfg, pass_args=True):
 
 
 def compute_PESQ(clean_signal, noisy_signal, sr=16000):
+    #return pesq(clean_signal, noisy_signal, sr)
     return pesq(sr, clean_signal, noisy_signal, "wb")
 
 

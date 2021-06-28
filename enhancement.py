@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import gc
 
 import librosa
 import torch
@@ -8,6 +9,10 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from util.utils import initialize_config, load_checkpoint
+from audio_zen.acoustics.feature import save_wav
+
+
+import pdb
 
 """
 Parameters
@@ -26,7 +31,10 @@ os.environ["CUDA_VISIBLE_DEVICES"] = args.device
 config = json.load(open(args.config))
 model_checkpoint_path = args.model_checkpoint_path
 output_dir = args.output_dir
-assert os.path.exists(output_dir), "Enhanced directory should be exist."
+if not os.path.exists(output_dir):
+    print ("creating directory:", output_dir)
+    os.makedirs(output_dir)
+assert os.path.exists(output_dir), "Enhanced directory should be existent."
 
 """
 DataLoader
@@ -46,7 +54,10 @@ model.eval()
 Enhancement
 """
 sample_length = config["custom"]["sample_length"]
-for mixture, name in tqdm(dataloader):
+sample_length = sample_length * 100
+
+def do_infer (mixture,name):
+    global sample_length
     assert len(name) == 1, "Only support batch size is 1 in enhancement stage."
     name = name[0]
     padded_length = 0
@@ -71,4 +82,27 @@ for mixture, name in tqdm(dataloader):
     enhanced = enhanced.reshape(-1).numpy()
 
     output_path = os.path.join(output_dir, f"{name}.wav")
-    librosa.output.write_wav(output_path, enhanced, sr=16000)
+
+    
+
+    save_wav(output_path, enhanced, sr=16000)
+
+#import torch
+
+
+with torch.no_grad():
+    for mixture, name in tqdm(dataloader):
+        do_infer (mixture, name)
+        # prints currently alive Tensors and Variables
+        
+        
+        # i = 0
+        # for obj in gc.get_objects():
+        #     try:
+        #         if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+        #             i += 1
+        #             print(type(obj), obj.size())
+        #     except:
+        #         pass
+        # print ("NR_OBJECTS", i)
+        # pdb.set_trace()

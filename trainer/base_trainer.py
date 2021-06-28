@@ -1,7 +1,9 @@
 import time
 from pathlib import Path
 
+import colorful
 import json5
+import toml
 import numpy as np
 import torch
 from torch.optim.lr_scheduler import StepLR
@@ -15,6 +17,15 @@ class BaseTrainer:
                  model,
                  loss_function,
                  optimizer):
+
+        # print (config["validation_dataset"]["args"])
+        # assert config["validation_dataset"]["args"]["target_task"] == config["validation_dataset"]["args"]["target_task"], "Configuration target tasks diverging for validation and training"
+
+        self.config = config
+
+        self.color_tool = colorful
+        self.color_tool.use_style("solarized")
+
         self.n_gpu = torch.cuda.device_count()
         self.device = self._prepare_device(self.n_gpu, cudnn_deterministic=config["cudnn_deterministic"])
 
@@ -51,11 +62,19 @@ class BaseTrainer:
 
         if resume: self._resume_checkpoint()
 
-        print("Configurations are as follows: ")
-        print(json5.dumps(config, indent=2, sort_keys=False))
+        print(self.color_tool.cyan("The configurations are as follows: "))
+        print(self.color_tool.cyan("=" * 40))
+        print(self.color_tool.cyan(toml.dumps(config)[:-1]))  # except "\n"
+        print(self.color_tool.cyan("=" * 40))
 
-        with open((self.root_dir / f"{time.strftime('%Y-%m-%d-%H-%M-%S')}.json").as_posix(), "w") as handle:
-            json5.dump(config, handle, indent=2, sort_keys=False)
+        with open((self.root_dir / f"{time.strftime('%Y-%m-%d %H:%M:%S')}.toml").as_posix(), "w") as handle:
+            toml.dump(config, handle)
+
+        # print("Configurations are as follows: ")
+        # print(json5.dumps(config, indent=2, sort_keys=False))
+
+        # with open((self.root_dir / f"{time.strftime('%Y-%m-%d-%H-%M-%S')}.json").as_posix(), "w") as handle:
+        #     json5.dump(config, handle, indent=2, sort_keys=False)
 
         self._print_networks([self.model])
 
@@ -114,10 +133,14 @@ class BaseTrainer:
                 Like latest_model, but only saved when <is_best> is True.
         """
         torch.save(state_dict, (self.checkpoints_dir / "latest_model.tar").as_posix())
-        torch.save(state_dict["model"], (self.checkpoints_dir / f"model_{str(epoch).zfill(4)}.pth").as_posix())
+
+        
         if is_best:
             print(f"\t Found best score in {epoch} epoch, saving...")
+            torch.save(state_dict["model"], (self.checkpoints_dir / f"model_{str(epoch).zfill(4)}_peaked.pth").as_posix())
             torch.save(state_dict, (self.checkpoints_dir / "best_model.tar").as_posix())
+        else:
+            torch.save(state_dict["model"], (self.checkpoints_dir / f"model_{str(epoch).zfill(4)}.pth").as_posix())
 
         # Use model.cpu() or model.to("cpu") will migrate the model to CPU, at which point we need remigrate model back.
         # No matter tensor.cuda() or tensor.to("cuda"), if tensor in CPU, the tensor will not be migrated to GPU, but the model will.
@@ -184,14 +207,15 @@ class BaseTrainer:
     def _set_models_to_eval_mode(self):
         self.model.eval()
 
-    def train(self):
+    def train(self, validation_only=False):
         for epoch in range(self.start_epoch, self.epochs + 1):
             print(f"============== {epoch} epoch ==============")
             print("[0 seconds] Begin training...")
             timer = ExecutionTime()
 
             self._set_models_to_train_mode()
-            self._train_epoch(epoch)
+            if not validation_only:
+                self._train_epoch(epoch)
 
             if self.save_checkpoint_interval != 0 and (epoch % self.save_checkpoint_interval == 0):
                 self._save_checkpoint(epoch)
@@ -200,11 +224,18 @@ class BaseTrainer:
                 print(f"[{timer.duration()} seconds] Training is over. Validation is in progress...")
 
                 self._set_models_to_eval_mode()
+
+                print(self.color_tool.red("Always check that your validation set target matches your training set target!"))
+                print(self.color_tool.red("target task: \t" + str(self.config["train_dataset"]["args"]["target_task"])))
+                print(self.color_tool.red("validation set paths: \t" + str(self.config["validation_dataset"]["args"]["dataset_dir_list"])))
+
                 score = self._validation_epoch(epoch)
 
                 if self._is_best(score, find_max=self.find_max):
                     self._save_checkpoint(epoch, is_best=True)
-
+                    
+                print ("score is:", score)
+                
             print(f"[{timer.duration()} seconds] End this epoch.")
 
     def _train_epoch(self, epoch):
