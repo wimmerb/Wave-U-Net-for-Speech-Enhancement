@@ -78,8 +78,9 @@ if __name__ == '__main__':
         print ("wrong config format")
         sys.exit (0)
 
-    configuration["experiment_name"], _ = os.path.splitext(os.path.basename(args.configuration))
-    configuration["config_path"] = args.configuration
+    # configuration["experiment_name"], _ = os.path.splitext(os.path.basename(args.configuration)) #TODO needed? doesn't it break everything?
+    if configuration.get("config_path", None) == None:
+        configuration["config_path"] = args.configuration
 
     
 

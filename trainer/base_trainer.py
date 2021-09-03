@@ -10,6 +10,8 @@ from torch.optim.lr_scheduler import StepLR
 from util import visualization
 from util.utils import prepare_empty_dir, ExecutionTime
 
+import sys
+
 class BaseTrainer:
     def __init__(self,
                  config,
@@ -51,6 +53,7 @@ class BaseTrainer:
         self.root_dir = Path(config["root_dir"]).expanduser().absolute() / config["experiment_name"]
         self.checkpoints_dir = self.root_dir / "checkpoints"
         self.logs_dir = self.root_dir / "logs"
+        print(self.checkpoints_dir)
         prepare_empty_dir([self.checkpoints_dir, self.logs_dir], resume=resume)
 
         self.writer = visualization.writer(self.logs_dir.as_posix())
@@ -83,7 +86,9 @@ class BaseTrainer:
         Notes:
             To be careful at the loading. if the model is an instance of DataParallel, we need to set model.module.*
         """
-        latest_model_path = self.checkpoints_dir.expanduser().absolute() / "latest_model.tar"
+        #TODO make own function for that.... I exchanged latest with best...
+        latest_model_path = self.checkpoints_dir.expanduser().absolute() / "best_model.tar"
+        #latest_model_path = self.checkpoints_dir.expanduser().absolute() / "latest_model.tar"
         assert latest_model_path.exists(), f"{latest_model_path} does not exist, can not load latest checkpoint."
 
         checkpoint = torch.load(latest_model_path.as_posix(), map_location=self.device)
@@ -217,10 +222,9 @@ class BaseTrainer:
             if not validation_only:
                 self._train_epoch(epoch)
 
-            if self.save_checkpoint_interval != 0 and (epoch % self.save_checkpoint_interval == 0):
-                self._save_checkpoint(epoch)
+            
 
-            if self.validation_interval != 0 and epoch % self.validation_interval == 0:
+            if (self.validation_interval != 0 and epoch % self.validation_interval == 0) or validation_only:
                 print(f"[{timer.duration()} seconds] Training is over. Validation is in progress...")
 
                 self._set_models_to_eval_mode()
@@ -231,10 +235,16 @@ class BaseTrainer:
 
                 score = self._validation_epoch(epoch)
 
+                if validation_only:
+                    sys.exit(0)
+
                 if self._is_best(score, find_max=self.find_max):
                     self._save_checkpoint(epoch, is_best=True)
                     
                 print ("score is:", score)
+
+            if self.save_checkpoint_interval != 0 and (epoch % self.save_checkpoint_interval == 0):
+                self._save_checkpoint(epoch)
                 
             print(f"[{timer.duration()} seconds] End this epoch.")
 

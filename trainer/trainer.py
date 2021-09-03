@@ -5,7 +5,9 @@ import numpy as np
 import torch
 
 from trainer.base_trainer import BaseTrainer
-from util.utils import compute_STOI, compute_PESQ
+#from util.utils import compute_STOI, compute_PESQ
+from audio_zen.metrics import STOI, WB_PESQ, SI_SDR
+
 plt.switch_backend('agg')
 
 import tqdm
@@ -33,7 +35,7 @@ class Trainer(BaseTrainer):
 
         for i, (mixture, clean) in enumerate(tqdm.tqdm(self.train_data_loader)):
             # print (i)
-            # print (mixture.shape)
+            # print ("mix", mixture.shape)
             # print (mixture.shape)
             mixture = mixture.to(self.device)
             clean = clean.to(self.device)
@@ -65,6 +67,8 @@ class Trainer(BaseTrainer):
 
         custom_loss = self.validation_custom_config.get("loss", None)
 
+        si_sdr_c_n = []
+        si_sdr_c_e = []
         stoi_c_n = []  # clean and noisy
         stoi_c_e = []  # clean and enhanced
         pesq_c_n = []
@@ -160,14 +164,19 @@ class Trainer(BaseTrainer):
             # #print (mixture.device(), clean.device(), enhanced.device())
             # Metric
             if custom_loss == None:
-                stoi_c_n.append(compute_STOI(clean, mixture, sr=16000))
-                stoi_c_e.append(compute_STOI(clean, enhanced, sr=16000))
+                stoi_c_n.append(STOI(clean, mixture, sr=16000))
+                stoi_c_e.append(STOI(clean, enhanced, sr=16000))
+
+                si_sdr_c_n.append(SI_SDR(clean, mixture))
+                si_sdr_c_e.append(SI_SDR(clean, enhanced))
 
                 try:
-                    pesq_c_n.append(compute_PESQ(clean, mixture, sr=16000))
-                    pesq_c_e.append(compute_PESQ(clean, enhanced, sr=16000))
+                    pesq_c_n.append(WB_PESQ(clean, mixture, sr=16000))
+                    pesq_c_e.append(WB_PESQ(clean, enhanced, sr=16000))
                 except:
                     print ("pesq error", len (pesq_c_e))
+            else:
+                assert custom_loss == None
             # print(len (pesq_c_e))
             # print (pesq_c_e[-1])
 
@@ -190,19 +199,7 @@ class Trainer(BaseTrainer):
             #     print (clean[:100])
             #     print (mixture[:100])
 
-        get_metrics_ave = lambda metrics: np.sum(metrics) / len(metrics)
-        self.writer.add_scalars(f"Metric/STOI", {
-            "Clean and noisy": get_metrics_ave(stoi_c_n),
-            "Clean and enhanced": get_metrics_ave(stoi_c_e)
-        }, epoch)
-        self.writer.add_scalars(f"Metric/PESQ", {
-            "Clean and noisy": get_metrics_ave(pesq_c_n),
-            "Clean and enhanced": get_metrics_ave(pesq_c_e)
-        }, epoch)
-
         
-
-        score = (get_metrics_ave(stoi_c_e) + self._transform_pesq_range(get_metrics_ave(pesq_c_e))) / 2
 
         
 
@@ -218,4 +215,34 @@ class Trainer(BaseTrainer):
             print ("no custom loss used")
         print ("l1 loss is: ", np.mean(l1_losses))
         print ("l2 loss is: ", np.mean(l2_losses))
+
+        stoi_mean = np.mean([x for x in stoi_c_e if x != None and str(x) != 'nan' and x != np.nan and x != np.inf])
+        stoi_mean_pass = np.mean([x for x in stoi_c_n if x != None and str(x) != 'nan' and x != np.nan and x != np.inf])
+
+        pesq_mean = np.mean([x for x in pesq_c_e if x != None and str(x) != 'nan' and x != np.nan and x != np.inf])
+        pesq_mean_pass = np.mean([x for x in pesq_c_n if x != None and str(x) != 'nan' and x != np.nan and x != np.inf])
+
+        si_sdr_mean = np.mean([x for x in si_sdr_c_e if x != None and str(x) != 'nan' and x != np.nan and x != np.inf])
+        si_sdr_mean_pass = np.mean([x for x in si_sdr_c_n if x != None and str(x) != 'nan' and x != np.nan and x != np.inf])
+
+
+        self.writer.add_scalars(f"Metric/STOI", {
+            "Clean and noisy": stoi_mean_pass,
+            "Clean and enhanced": stoi_mean
+        }, epoch)
+        self.writer.add_scalars(f"Metric/PESQ", {
+            "Clean and noisy": pesq_mean_pass,
+            "Clean and enhanced": pesq_mean
+        }, epoch)
+
+        
+
+        score = (stoi_mean + self._transform_pesq_range(pesq_mean)) / 2
+
+        print("========================================")
+        print("STOI mean:", stoi_mean, "reference:", stoi_mean_pass)
+        print("PESQ mean:", pesq_mean, "reference:", pesq_mean_pass)
+        print("SI_SDR mean:", si_sdr_mean, "reference:", si_sdr_mean_pass)
+        print("========================================")
+
         return score
